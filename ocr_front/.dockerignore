@@ -1,0 +1,31 @@
+# Ignore les fichiers système et caches
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Ignore les fichiers de configuration de l'IDE
+.vscode/
+.idea/
+*.swp
+
+# Ignore les dépendances locales
+.venv/
+env/
+venv/
+node_modules/
+
+# Ignore les fichiers de log et temporaires
+*.log
+*.tmp
+.DS_Store
+
+# Ignore Git
+.git/
+.gitignore
+
+# Ignore les fichiers Streamlit inutiles
+.streamlit/
+
+# Ignore les fichiers d'upload temporaires
+/tmp/

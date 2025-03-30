@@ -1,0 +1,19 @@
+services:
+  ocr-api:
+    build: .
+    ports:
+      - "9876:9876"
+    volumes:
+      - ./data:/data
+      - ~/.paddleocr:/root/.paddleocr  # Stocke les modèles PaddleOCR
+      - ~/.cache/huggingface:/root/.cache/huggingface  # Stocke les modèles TrOCR
+    environment:
+      - TZ=Europe/Paris
+    networks:
+      - ocr-network
+    restart: unless-stopped
+    
+# On utilise le même réseau que le backend
+networks:
+  ocr-network:
+    external: true  # On utilise un réseau partagé

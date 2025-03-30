@@ -1,0 +1,17 @@
+version: "3.8"
+
+services:
+  ocr-frontend:
+    build: .  # Cela va utiliser le Dockerfile dans /ocr_front
+    ports:
+      - "9898:9898"  # Mappe le port local 9898 au port 9898 du conteneur
+    environment:
+      - API_URL=http://ocr-api:9876  # Assure-toi que c'est bien l'URL de ton backend
+    networks:
+      - ocr-network  # Utilisation du réseau partagé
+    restart: unless-stopped
+
+# On utilise le même réseau que le backend
+networks:
+  ocr-network:
+    external: true  # On utilise un réseau partagé

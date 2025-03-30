@@ -1,0 +1,12 @@
+paddlepaddle>=2.4.0
+paddleocr>=2.6.0
+transformers>=4.25.1
+python-Levenshtein>=0.20.9
+pillow>=9.0.0
+matplotlib>=3.5.1
+numpy>=1.22.0
+fastapi>=0.95.0
+uvicorn>=0.21.0
+python-multipart>=0.0.5
+torch>=1.10.0
+pdf2image>=1.16.0

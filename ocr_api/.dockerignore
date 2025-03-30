@@ -1,0 +1,28 @@
+# Exclure les dossiers et fichiers inutiles
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Exclure les données locales
+data/
+logs/
+tmp/
+
+# Exclure les fichiers de configuration locaux et sensibles
+.env
+config.json
+secrets.json
+
+# Exclure les modèles téléchargés localement (ils seront téléchargés dans Docker)
+~/.paddleocr/
+~/.cache/huggingface/
+
+# Exclure les fichiers de versionnement et d'IDE
+.git/
+.gitignore
+.vscode/
+.idea/
+
+# Exclure les fichiers de logs
+*.log
