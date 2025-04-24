@@ -24,3 +24,4 @@ curl -X 'POST' \
   'http://localhost:9876/process_pdf/' \
   -F 'file=@/Users/mac/Desktop/Qalqul/OCR/files_test/consta_1 (dragged).pdf'
 
+/Users/mac/Downloads/test5 (dragged).pdf

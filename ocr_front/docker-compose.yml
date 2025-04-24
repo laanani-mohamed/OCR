@@ -1,17 +1,19 @@
-version: "3.8"
-
 services:
-  ocr-frontend:
-    build: .  # Cela va utiliser le Dockerfile dans /ocr_front
+  ocr-api:
+    build: .
     ports:
-      - "9898:9898"  # Mappe le port local 9898 au port 9898 du conteneur
+      - "9876:9876"
+    volumes:
+      - ./data:/data
+      - ~/.paddleocr:/root/.paddleocr # Stocke les modèles PaddleOCR
+      - ~/.cache/huggingface:/root/.cache/huggingface # Stocke les modèles TrOCR
     environment:
-      - API_URL=http://ocr-api:9876  # Assure-toi que c'est bien l'URL de ton backend
+      - TZ=Europe/Paris
     networks:
-      - ocr-network  # Utilisation du réseau partagé
+      - ocr-network
     restart: unless-stopped
 
 # On utilise le même réseau que le backend
 networks:
   ocr-network:
-    external: true  # On utilise un réseau partagé
+    external: true # On utilise un réseau partagé

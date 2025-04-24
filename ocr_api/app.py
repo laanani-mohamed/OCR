@@ -1,96 +1,191 @@
-from fastapi import FastAPI, File, UploadFile, Form
-from fastapi.responses import JSONResponse
-from fastapi.middleware.cors import CORSMiddleware
+from flask import Flask, request, jsonify
 import os
-import uuid
+from werkzeug.utils import secure_filename
 import tempfile
-from PIL import Image
-import io
-
-# Importer nos modules de traitement
-from processor_pdf import PDFProcessor
+import logging
+import time
 from processor_image import ImageProcessor
+from processor_pdf import ConstatProcessor
 
-# Initialiser FastAPI
-app = FastAPI(title="OCR API", description="API pour OCR de documents avec PaddleOCR et TrOCR")
+# Configuration du logging
+logging.basicConfig(level=logging.INFO, 
+                   format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
-# Configurer CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # Limite à 16 Mo
+app.config['UPLOAD_FOLDER'] = tempfile.gettempdir()  # Dossier temporaire pour les fichiers
 
-# Initialiser les processeurs
-processor_pdf = PDFProcessor()
-processor_image = ImageProcessor()
+# Extensions permises
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'pdf'}
 
-# Route pour traiter les images
-@app.post("/process_image/")
-async def process_image(file: UploadFile = File(...)):
-    # Créer un ID unique pour ce traitement
-    process_id = str(uuid.uuid4())
-    
-    # Créer un répertoire temporaire pour l'image
-    os.makedirs(f"/data/input/{process_id}", exist_ok=True)
-    os.makedirs(f"/data/output/{process_id}", exist_ok=True)
-    
-    # Enregistrer l'image localement
-    temp_file_path = f"/data/input/{process_id}/{file.filename}"
-    with open(temp_file_path, "wb") as f:
-        f.write(await file.read())
-    
+def allowed_file(filename):
+    """Vérifier si le fichier a une extension autorisée"""
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+@app.route('/health', methods=['GET'])
+def health_check():
+    """Endpoint pour vérifier que l'API fonctionne"""
+    return jsonify({"status": "ok"})
+
+@app.route('/models/check', methods=['GET'])
+def check_models():
+    """Endpoint pour vérifier que les modèles sont chargés"""
     try:
-        # Traiter l'image avec notre processeur d'image
-        results = processor_image.process_image(temp_file_path)
+        # Vérifier PaddleOCR
+        from paddleocr import PaddleOCR
+        paddle_ocr = PaddleOCR(use_angle_cls=True, lang='fr')
         
-        # Ajouter l'ID du processus à la réponse
-        response = {
-            "process_id": process_id,
-            **results
-        }
+        # Vérifier TrOCR
+        from transformers import TrOCRProcessor, VisionEncoderDecoderModel
+        trocr_processor = TrOCRProcessor.from_pretrained("microsoft/trocr-large-handwritten")
+        trocr_model = VisionEncoderDecoderModel.from_pretrained("microsoft/trocr-large-handwritten")
         
-        return JSONResponse(content=response)
+        # Vérifier doctr
+        from doctr.models import ocr_predictor, fast_tiny
+        doctr_model = fast_tiny(pretrained=True)
+        
+        return jsonify({
+            "status": "ok",
+            "models": {
+                "paddleocr": "loaded",
+                "trocr": "loaded",
+                "doctr": "loaded"
+            }
+        })
     except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Erreur lors du traitement de l'image: {str(e)}"}
-        )
+        return jsonify({
+            "status": "error",
+            "message": str(e)
+        }), 500
 
-# Route pour traiter les PDF
-@app.post("/process_pdf/")
-async def process_pdf(file: UploadFile = File(...)):
-    # Créer un ID unique pour ce traitement
-    process_id = str(uuid.uuid4())
+@app.route('/ocr/image', methods=['POST'])
+def process_image():
+    """Endpoint pour traiter une image avec OCR"""
+    # Démarrer le chronomètre
+    start_time = time.time()
     
-    # Créer un répertoire temporaire pour le PDF
-    os.makedirs(f"/data/input/{process_id}", exist_ok=True)
-    os.makedirs(f"/data/output/{process_id}", exist_ok=True)
+    # Vérifier qu'un fichier a été envoyé
+    if 'file' not in request.files:
+        return jsonify({"error": "Aucun fichier n'a été envoyé"}), 400
     
-    # Enregistrer le PDF localement
-    temp_file_path = f"/data/input/{process_id}/{file.filename}"
-    with open(temp_file_path, "wb") as f:
-        f.write(await file.read())
+    file = request.files['file']
     
-    # Traiter le PDF avec notre processeur
-    try:
-        results = processor_pdf.process_pdf(temp_file_path)
+    # Vérifier que le fichier a un nom
+    if file.filename == '':
+        return jsonify({"error": "Aucun fichier sélectionné"}), 400
+    
+    # Vérifier que c'est un fichier image autorisé
+    if file and allowed_file(file.filename) and file.filename.rsplit('.', 1)[1].lower() in ['png', 'jpg', 'jpeg']:
+        try:
+            # Sauvegarder le fichier temporairement
+            filename = secure_filename(file.filename)
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(filepath)
+            
+            # Initialiser le processeur d'images et traiter l'image
+            image_processor = ImageProcessor()
+            result = image_processor.process_image(filepath)
+            
+            # Nettoyer le fichier temporaire
+            os.remove(filepath)
+            
+            # Calculer le temps d'exécution
+            execution_time = time.time() - start_time
+            
+            # Ajouter le temps d'exécution au résultat
+            result['execution_time'] = {
+                'seconds': execution_time,
+            }
+            
+            # Journaliser le temps d'exécution
+            logger.info(f"Image traitée en {execution_time:.2f} secondes: {file.filename}")
+            
+            return jsonify(result)
         
-        # Préparer la réponse
-        response = {
-            "process_id": process_id,
-            "pdf_results": results
-        }
-        
-        return JSONResponse(content=response)
-    except Exception as e:
-        return JSONResponse(
-            status_code=500,
-            content={"error": f"Erreur lors du traitement du PDF: {str(e)}"}
-        )
+        except Exception as e:
+            # Calculer le temps d'exécution même en cas d'erreur
+            execution_time = time.time() - start_time
+            logger.error(f"Erreur lors du traitement de l'image ({execution_time:.2f}s): {str(e)}")
+            return jsonify({
+                "error": f"Erreur lors du traitement: {str(e)}",
+                "execution_time": {
+                    'seconds': execution_time,
+                }
+            }), 500
+    
+    return jsonify({"error": "Type de fichier non pris en charge"}), 400
 
-@app.get("/")
-async def root():
-    return {"message": "API OCR opérationnelle. Utilisez /process_image/ pour traiter des images ou /process_pdf/ pour traiter des PDF."}
+@app.route('/ocr/pdf', methods=['POST'])
+def process_pdf():
+    """Endpoint pour traiter un PDF de constat amiable"""
+    # Démarrer le chronomètre
+    start_time = time.time()
+    
+    # Vérifier qu'un fichier a été envoyé
+    if 'file' not in request.files:
+        return jsonify({"error": "Aucun fichier n'a été envoyé"}), 400
+    
+    file = request.files['file']
+    
+    # Vérifier que le fichier a un nom
+    if file.filename == '':
+        return jsonify({"error": "Aucun fichier sélectionné"}), 400
+    
+    # Vérifier que c'est un fichier PDF
+    if file and allowed_file(file.filename) and file.filename.rsplit('.', 1)[1].lower() == 'pdf':
+        try:
+            # Sauvegarder le fichier temporairement
+            filename = secure_filename(file.filename)
+            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            file.save(filepath)
+            
+            # Initialiser le processeur de PDF et traiter le fichier
+            pdf_processor = ConstatProcessor()
+            result = pdf_processor.process_pdf(filepath)
+            
+            # Nettoyer le fichier temporaire
+            os.remove(filepath)
+            
+            # Calculer le temps d'exécution
+            execution_time = time.time() - start_time
+            
+            # Si le résultat est un dictionnaire, ajouter le temps d'exécution
+            if isinstance(result, dict):
+                result['execution_time'] = {
+                    'seconds': execution_time,
+                }
+            else:
+                # Sinon, encapsuler le résultat
+                result = {
+                    'data': result,
+                    'execution_time': {
+                        'seconds': execution_time,
+                    }
+                }
+            
+            # Journaliser le temps d'exécution
+            logger.info(f"PDF traité en {execution_time:.2f} secondes: {file.filename}")
+            
+            return jsonify(result)
+        
+        except Exception as e:
+            # Calculer le temps d'exécution même en cas d'erreur
+            execution_time = time.time() - start_time
+            logger.error(f"Erreur lors du traitement du PDF ({execution_time:.2f}s): {str(e)}")
+            return jsonify({
+                "error": f"Erreur lors du traitement: {str(e)}",
+                "execution_time": {
+                    'seconds': execution_time,
+                }
+            }), 500
+    
+    return jsonify({"error": "Type de fichier non pris en charge"}), 400
+
+if __name__ == '__main__':
+    debug_mode = False  # Simplifié ici
+    port = int(os.environ.get('PORT', 5000))
+    
+    logger.info(f"Démarrage de l'API OCR sur le port {port}, debug={debug_mode}")
+    app.run(host='0.0.0.0', port=port, debug=debug_mode)

@@ -1,19 +1,23 @@
+# docker-compose.yml
 services:
   ocr-api:
     build: .
     ports:
-      - "9876:9876"
+      - "9876:5000"
     volumes:
-      - ./data:/data
-      - ~/.paddleocr:/root/.paddleocr  # Stocke les modèles PaddleOCR
-      - ~/.cache/huggingface:/root/.cache/huggingface  # Stocke les modèles TrOCR
+      - ocr-data:/data
+      - paddleocr-models:/root/.paddleocr
+      - huggingface-models:/root/.cache/huggingface
+      - doctr-models:/root/.cache/doctr
     environment:
       - TZ=Europe/Paris
-    networks:
-      - ocr-network
+      - PORT=5000
+      - FLASK_DEBUG=False
     restart: unless-stopped
-    
-# On utilise le même réseau que le backend
-networks:
-  ocr-network:
-    external: true  # On utilise un réseau partagé
+    command: gunicorn --bind 0.0.0.0:5000 app:app --timeout 300 --workers 1
+
+volumes:
+  ocr-data:
+  paddleocr-models:
+  huggingface-models:
+  doctr-models:
